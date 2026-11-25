@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<title>FLYINGGROUP · Payroll → Isabel SEPA converter</title>
+<style>
+:root{--burg:#4D0A1A;--pale:#E6D3D7;--red:#E40300;--ink:#141B1F;--char:#343C3E;--mid:#8A9299;--line:#C9CED1}
+*{box-sizing:border-box}
+body{margin:0;min-height:100vh;display:flex;flex-direction:column;font-family:Corbel,'Segoe UI',Calibri,Arial,sans-serif;color:var(--char);background:#fff}
+header{background:var(--burg);padding:16px 28px;display:flex;align-items:center;gap:20px}
+header img{height:34px}
+header .t{border-left:1px solid rgba(255,255,255,.35);padding-left:20px;color:#fff}
+header .k{font-size:11px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:var(--pale)}
+header h1{margin:2px 0 0;font-size:21px}
+main{flex:1;display:flex;align-items:flex-start;justify-content:center;padding:60px 20px}
+form{width:min(400px,100%);border:1px solid var(--line);border-top:4px solid var(--burg);padding:24px 26px}
+.kick{font-size:11px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:var(--red)}
+h2{margin:4px 0 18px;color:var(--ink);font-size:20px}
+label{display:block;font-size:11.5px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;margin:12px 0 5px}
+input{width:100%;font:inherit;font-size:15px;padding:9px 10px;border:1px solid var(--line);border-radius:0;color:var(--ink)}
+input:focus{outline:2px solid var(--pale);border-color:var(--burg)}
+button{margin-top:20px;width:100%;font:inherit;font-weight:700;font-size:15px;padding:11px;border:0;background:var(--burg);color:#fff;cursor:pointer}
+button:disabled{opacity:.6;cursor:wait}
+#msg{min-height:18px;margin-top:12px;font-size:13px;color:var(--red)}
+.note{font-size:12px;color:var(--mid);margin-top:14px}
+footer{margin:0 28px 20px;padding-top:10px;border-top:1px solid var(--line);font-size:12px;color:var(--mid);display:flex;justify-content:space-between}
+</style>
+</head>
+<body>
+<header><img alt="FLYINGGROUP" src="data:image/png;base64,__LOGO__"><div class="t"><div class="k">Finance · Payroll · Isabel 6</div><h1>Payroll → Isabel SEPA converter</h1></div></header>
+<main>
+<form id="f" autocomplete="on">
+  <div class="kick">Restricted access</div>
+  <h2>Log in</h2>
+  <label for="u">Account</label><input id="u" name="username" autocomplete="username" required autofocus>
+  <label for="p">Password</label><input id="p" name="password" type="password" autocomplete="current-password" required>
+  <button id="b" type="submit">Log in</button>
+  <div id="msg"></div>
+  <div class="note">The application is stored encrypted and is only unlocked in your browser with a valid login. Payroll files and masterdata are processed locally and are never uploaded.</div>
+</form>
+</main>
+<footer><span>FLYINGGROUP · www.flyinggroup.aero</span><span>Confidential</span></footer>
+<script id="payload" type="application/json">__PAYLOAD__</script>
+<script>
+'use strict';
+const P=JSON.parse(document.getElementById('payload').textContent);
+const b64=s=>Uint8Array.from(atob(s),c=>c.charCodeAt(0));
+const SKEY='fg-payroll-key';
+async function derive(user,pass){
+  const base=await crypto.subtle.importKey('raw',new TextEncoder().encode(user.trim().toUpperCase()+'\n'+pass),'PBKDF2',false,['deriveKey']);
+  return crypto.subtle.deriveKey({name:'PBKDF2',salt:b64(P.salt),iterations:P.iter,hash:'SHA-256'},base,{name:'AES-GCM',length:256},true,['decrypt']);
+}
+async function unlock(key){
+  const plain=await crypto.subtle.decrypt({name:'AES-GCM',iv:b64(P.iv)},key,b64(P.data));
+  const bytes=new Uint8Array(plain);
+  const html=new TextDecoder().decode(P.gzip?await new Response(new Blob([bytes]).stream().pipeThrough(new DecompressionStream('gzip'))).arrayBuffer():bytes);
+  document.open();document.write(html);document.close();
+}
+document.getElementById('f').addEventListener('submit',async e=>{
+  e.preventDefault();const btn=document.getElementById('b'),msg=document.getElementById('msg');
+  btn.disabled=true;btn.textContent='Checking…';msg.textContent='';
+  try{
+    const key=await derive(document.getElementById('u').value,document.getElementById('p').value);
+    await unlock(key);
+    try{sessionStorage.setItem(SKEY,JSON.stringify(Array.from(new Uint8Array(await crypto.subtle.exportKey('raw',key)))))}catch(_){}
+  }catch(err){btn.disabled=false;btn.textContent='Log in';msg.textContent='Invalid account or password.';document.getElementById('p').select()}
+});
+(async()=>{ // stay logged in while this browser tab is open
+  if(!window.crypto||!crypto.subtle){document.getElementById('msg').textContent='This page must be opened over https (or as a local file) in Edge or Chrome.';return}
+  try{const k=sessionStorage.getItem(SKEY);if(k){const key=await crypto.subtle.importKey('raw',new Uint8Array(JSON.parse(k)),{name:'AES-GCM'},false,['decrypt']);await unlock(key)}}catch(_){try{sessionStorage.removeItem(SKEY)}catch(e){}}
+})();
+</script>
+</body>
+</html>
